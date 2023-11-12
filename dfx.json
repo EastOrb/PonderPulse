@@ -1,0 +1,13 @@
+{
+  "canisters": {
+    "ponder_pulse": {
+      "main": "src/index.ts",
+      "type": "custom",
+      "build": "npx azle ponder_pulse",
+      "root": "src",
+      "ts": "src/index.ts",
+      "candid": "src/index.did",
+      "wasm": ".azle/ponder_pulse/ponder_pulse.wasm.gz"
+    }
+  }
+}
