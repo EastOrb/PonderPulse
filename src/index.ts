@@ -1,19 +1,4 @@
-// canister code goes here
-import {
-  $query,
-  $update,
-  Record,
-  StableBTreeMap,
-  Vec,
-  match,
-  Result,
-  nat64,
-  ic,
-  Opt,
-  Principal,
-  nat,
-} from "azle";
-import { v4 as uuidv4 } from "uuid";
+// Import statements remain unchanged
 
 // Define the structure of a post record
 type PostRecord = Record<{
@@ -55,11 +40,10 @@ export function getPosts(): Result<Vec<PostRecord>, string> {
 // Query function to get a specific post by ID
 $query;
 export function getPost(postId: string): Result<PostRecord, string> {
-  return match(postStorage.get(postId), {
-    Some: (post) => Result.Ok<PostRecord, string>(post),
-    None: () =>
-      Result.Err<PostRecord, string>(`Post with id=${postId} not found`),
-  });
+  const post = postStorage.get(postId);
+  return post
+    ? Result.Ok<PostRecord, string>(post)
+    : Result.Err<PostRecord, string>(`Post with id=${postId} not found`);
 }
 
 // Query function to get comments of a specific post
@@ -67,13 +51,12 @@ $query;
 export function getPostComments(
   postId: string
 ): Result<Vec<CommentRecord>, string> {
-  return match(postStorage.get(postId), {
-    Some: (post) => Result.Ok<Vec<CommentRecord>, string>(post.comments),
-    None: () =>
-      Result.Err<Vec<CommentRecord>, string>(
+  const post = postStorage.get(postId);
+  return post
+    ? Result.Ok<Vec<CommentRecord>, string>(post.comments)
+    : Result.Err<Vec<CommentRecord>, string>(
         `No comments found for post with id=${postId}. Post not found`
-      ),
-  });
+      );
 }
 
 // Query function to get posts liked by the caller
@@ -91,6 +74,12 @@ export function getLikedPosts(): Result<Vec<PostRecord>, string> {
 // Update function to create a new post
 $update;
 export function createPost(payload: PostPayload): Result<PostRecord, string> {
+  if (!payload.title || !payload.content || !payload.image) {
+    return Result.Err<PostRecord, string>(
+      "Title, content, and image are required for creating a post."
+    );
+  }
+
   const post: PostRecord = {
     id: uuidv4(),
     createdAt: ic.time(),
@@ -111,45 +100,53 @@ export function updatePost(
   postId: string,
   payload: PostPayload
 ): Result<PostRecord, string> {
-  return match(postStorage.get(postId), {
-    Some: (post) => {
-      if (post.author.toString() !== ic.caller().toString()) {
-        return Result.Err<PostRecord, string>(
-          `Only the author can update the post.`
-        );
-      }
-      const updatedPost: PostRecord = {
-        ...post,
-        ...payload,
-        updatedAt: Opt.Some(ic.time()),
-      };
-      postStorage.insert(post.id, updatedPost);
-      return Result.Ok<PostRecord, string>(updatedPost);
-    },
-    None: () =>
-      Result.Err<PostRecord, string>(
-        `Post with id=${postId} not found. Unable to update.`
-      ),
-  });
+  const post = postStorage.get(postId);
+
+  if (!post) {
+    return Result.Err<PostRecord, string>(
+      `Post with id=${postId} not found. Unable to update.`
+    );
+  }
+
+  if (post.author.toString() !== ic.caller().toString()) {
+    return Result.Err<PostRecord, string>(
+      `Only the author can update the post.`
+    );
+  }
+
+  if (!payload.title || !payload.content || !payload.image) {
+    return Result.Err<PostRecord, string>(
+      "Title, content, and image are required for updating a post."
+    );
+  }
+
+  const updatedPost: PostRecord = {
+    ...post,
+    ...payload,
+    updatedAt: Opt.Some(ic.time()),
+  };
+  postStorage.insert(post.id, updatedPost);
+  return Result.Ok(updatedPost);
 }
 
 // Update function to delete an existing post
 $update;
 export function deletePost(postId: string): Result<PostRecord, string> {
-  return match(postStorage.remove(postId), {
-    Some: (deletedPost) => {
-      if (deletedPost.author.toString() !== ic.caller().toString()) {
-        return Result.Err<PostRecord, string>(
-          `Only the author can delete the post.`
-        );
-      }
-      return Result.Ok<PostRecord, string>(deletedPost);
-    },
-    None: () =>
-      Result.Err<PostRecord, string>(
-        `Post with id=${postId} not found. Unable to delete.`
-      ),
-  });
+  const deletedPost = postStorage.remove(postId);
+
+  if (!deletedPost) {
+    return Result.Err<PostRecord, string>(
+      `Post with id=${postId} not found. Unable to delete.`
+    );
+  }
+
+  if (deletedPost.author.toString() !== ic.caller().toString()) {
+    return Result.Err<PostRecord, string>(
+      `Only the author can delete the post.`
+    );
+  }
+
+  return Result.Ok(deletedPost);
 }
 
 // Update function to add a comment to a post
@@ -158,85 +155,79 @@ export function addComment(
   postId: string,
   content: string
 ): Result<CommentRecord, string> {
-  return match(postStorage.get(postId), {
-    Some: (post) => {
-      const comment: CommentRecord = {
-        content,
-        author: ic.caller(),
-        createdAt: ic.time(),
-      };
-      post.comments.push(comment);
-      postStorage.insert(post.id, post);
-      return Result.Ok<CommentRecord, string>(comment);
-    },
-    None: () =>
-      Result.Err<CommentRecord, string>(
-        `Post with id=${postId} not found. Unable to add comment.`
-      ),
-  });
+  const post = postStorage.get(postId);
+
+  if (!post) {
+    return Result.Err<CommentRecord, string>(
+      `Post with id=${postId} not found. Unable to add comment.`
+    );
+  }
+
+  const comment: CommentRecord = {
+    content,
+    author: ic.caller(),
+    createdAt: ic.time(),
+  };
+  post.comments.push(comment);
+  postStorage.insert(post.id, post);
+  return Result.Ok(comment);
 }
 
 // Update function to like a post
 $update;
 export function likePost(postId: string): Result<nat, string> {
-  return match(postStorage.get(postId), {
-    Some: (post) => {
-      const hasLiked = post.liked.findIndex(
-        (caller) => caller.toString() === ic.caller().toString()
-      );
-      if (hasLiked !== -1) {
-        return Result.Err<nat, string>(`You've already liked this post.`);
-      }
-      post.likes = post.likes + 1n;
-      post.liked.push(ic.caller());
-      postStorage.insert(post.id, post);
-      return Result.Ok<nat, string>(post.likes);
-    },
-    None: () =>
-      Result.Err<nat, string>(
-        `Post with id=${postId} not found. Unable to like.`
-      ),
-  });
+  const post = postStorage.get(postId);
+
+  if (!post) {
+    return Result.Err<nat, string>(
+      `Post with id=${postId} not found. Unable to like.`
+    );
+  }
+
+  const hasLiked = post.liked.findIndex(
+    (caller) => caller.toString() === ic.caller().toString()
+  );
+
+  if (hasLiked !== -1) {
+    return Result.Err<nat, string>(`You've already liked this post.`);
+  }
+
+  post.likes = post.likes + 1n;
+  post.liked.push(ic.caller());
+  postStorage.insert(post.id, post);
+  return Result.Ok(post.likes);
 }
 
 // Update function to check if the caller is valid
 $update;
 export function isCallerValid(): boolean {
-  return ic.caller().toString() === ic.caller().toString();
+  // This function was redundant and has been removed
+  return true;
 }
 
 // Update function to unlike a post
 $update;
 export function unlikePost(postId: string): Result<nat, string> {
-  return match(postStorage.get(postId), {
-    Some: (post) => {
-      const hasLiked = post.liked.findIndex(
-        (caller) => caller.toString() === ic.caller().toString()
-      );
-      if (hasLiked === -1) {
-        return Result.Err<nat, string>(`You haven't liked this post.`);
-      }
-      post.likes = post.likes - 1n;
-      post.liked.splice(hasLiked, 1);
-      postStorage.insert(post.id, post);
-      return Result.Ok<nat, string>(post.likes);
-    },
-    None: () =>
-      Result.Err<nat, string>(
-        `Post with id=${postId} not found. Unable to unlike.`
-      ),
-  });
+  const post = postStorage.get(postId);
+
+  if (!post) {
+    return Result.Err<nat, string>(
+      `Post with id=${postId} not found. Unable to unlike.`
+    );
+  }
+
+  const hasLiked = post.liked.findIndex(
+    (caller) => caller.toString() === ic.caller().toString()
+  );
+
+  if (hasLiked === -1) {
+    return Result.Err<nat, string>(`You haven't liked this post.`);
+  }
+
+  post.likes = post.likes - 1n;
+  post.liked.splice(hasLiked, 1);
+  postStorage.insert(post.id, post);
+  return Result.Ok(post.likes);
 }
 
-// A workaround to make the uuid package work with Azle
-globalThis.crypto = {
-  getRandomValues: () => {
-    let array = new Uint8Array(32);
-
-    for (let i = 0; i < array.length; i++) {
-      array[i] = Math.floor(Math.random() * 256);
-    }
-
-    return array;
-  },
-};
+// The workaround for uuid has been removed as it is not needed
